@@ -21,7 +21,7 @@ from models import create_model
 from util.visualizer import Visualizer
 from util.evaluation import evaluation
 from util import html,util
-from util.visualizer import save_images
+from util.visualizer import save_images, save_wb_images
 
 def train(cfg):
     #init
@@ -63,8 +63,24 @@ def train(cfg):
             if epoch == cfg.epoch_count and i == 0:
                 model.data_dependent_initialize(data)
                 model.setup(cfg)               # regular setup: load and print networks; create schedulers
-            model.set_input(data)         # unpack data from dataset and apply preprocessing
-            model.optimize_parameters()   # calculate loss functions, get gradients, update network weights
+            if cfg.use_patch:
+                imgs_ = data['image']
+                awb_gt_ = data['gt-AWB']
+                t_gt_ = data['gt-T']
+                s_gt_ = data['gt-S']
+
+                data_p = {}
+                data_p['img_path'] = data['img_path']
+                for j in range(4):
+                        data_p['image'] = imgs_[:, (j * 3): 3 + (j * 3), :, :]
+                        data_p['gt-AWB'] = awb_gt_[:, (j * 3): 3 + (j * 3), :, :]
+                        data_p['gt-T'] = t_gt_[:, (j * 3): 3 + (j * 3), :, :]
+                        data_p['gt-S'] = s_gt_[:, (j * 3): 3 + (j * 3), :, :]
+                        model.set_input(data_p)         # unpack data from dataset and apply preprocessing
+                        model.optimize_parameters()   # calculate loss functions, get gradients, update network weights
+            else:
+                model.set_input(data)         # unpack data from dataset and apply preprocessing
+                model.optimize_parameters()   # calculate loss functions, get gradients, update network weights
 
             if total_iters % cfg.display_freq == 0 and is_master:   # display images on visdom and save images to a HTML file
                 save_result = total_iters % cfg.update_html_freq == 0
@@ -108,8 +124,8 @@ def test(cfg):
     # test with eval mode. This only affects layers like batchnorm and dropout.
     # For [pix2pix]: we use batchnorm and dropout in the original pix2pix. You can experiment it with and without eval() mode.
     # For [CycleGAN]: It should not affect CycleGAN as CycleGAN uses instancenorm without dropout.
-    if cfg.eval:
-        model.eval()
+    # if cfg.eval:
+    model.eval()
     ismaster = du.is_master_proc(cfg.NUM_GPUS)
 
     fmse_score_list = []
@@ -118,8 +134,8 @@ def test(cfg):
     num_image = 0
     # print (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
     for i, data in enumerate(dataset):
-        # if i >= 100:
-        #     print (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
+        # if i >= 2:
+        #     # print (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
         #     break
         model.set_input(data)  # unpack data from data loader
         model.test()           # run inference
@@ -136,7 +152,10 @@ def test(cfg):
             for label, im_data in visuals.items():
                 visuals_ones[label] = im_data[j:j+1, :, :, :]
             img_path_one.append(img_path[j])
+            
             save_images(webpage, visuals_ones, img_path_one, aspect_ratio=cfg.aspect_ratio, width=cfg.display_winsize)
+            # img_path_one = img_path[j]
+            # save_wb_images(webpage, visuals_ones, img_path_one, aspect_ratio=cfg.aspect_ratio, width=cfg.display_winsize)
             num_image += 1
             visuals_ones.clear()
 
